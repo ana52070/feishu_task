@@ -2,7 +2,7 @@
   "name": "feishu-tasklist-sync",
   "version": "0.0.1",
   "description": "飞书多维表格自动化插件 - 自动同步任务到所属清单",
-  "main": "dist/register.js",
+  "main": "dist/src/register.js",
   "scripts": {
     "build": "tsc",
     "test": "node dist/test/index.js",
