@@ -6,6 +6,8 @@
 //   FEISHU_APP_SECRET        飞书应用 App Secret（必填）
 //   FEISHU_REFRESH_TOKEN     用户 Refresh Token（必填，通过 /api/auth 获取）
 //   FEISHU_BASE_URL          多维表格完整链接（必填，如 https://xxx.feishu.cn/base/xxx?table=tblxxx）
+//   FEISHU_TASKLIST_GUIDS    任务清单 GUID 映射 JSON（可选，建议配置以避免 API 搜索问题）
+//                            格式: {"学培部":"guid1","组织部":"guid2","宣传部":"guid3"}
 
 const FEISHU_HOST = "https://open.feishu.cn";
 
@@ -28,12 +30,13 @@ async function feishuFetch(path, options = {}) {
   }
 }
 
-// 刷新 user_access_token
+// 获取 user_access_token
+// 调用方式: POST /open-apis/authen/v1/access_token  with grant_type=refresh_token
 async function refreshUserToken() {
   const refreshToken = process.env.FEISHU_REFRESH_TOKEN;
   if (!refreshToken) throw new Error("FEISHU_REFRESH_TOKEN 未设置");
 
-  const data = await feishuFetch("/open-apis/authen/v1/refresh_access_token", {
+  const data = await feishuFetch("/open-apis/authen/v1/access_token", {
     method: "POST",
     body: JSON.stringify({
       app_id: process.env.FEISHU_APP_ID,
@@ -47,8 +50,7 @@ async function refreshUserToken() {
     throw new Error(`刷新 token 失败 (${data.code}): ${data.msg}。请重新访问 /api/auth 获取新 refresh_token`);
   }
 
-  // 更新环境变量中存的 refresh_token（新 refresh_token 可能有更新）
-  return data.data.access_token;
+  return data.data?.access_token || data.access_token;
 }
 
 // 获取多维表格记录
@@ -75,7 +77,7 @@ async function getBaseRecords(accessToken, baseToken, tableId) {
   return records;
 }
 
-// 获取任务清单中的任务 GUID
+// 获取任务清单中的任务 GUID 列表
 async function getTasklistTasks(accessToken, tasklistGuid) {
   const tasks = [];
   let pageToken = "";
@@ -101,7 +103,6 @@ async function getTasklistTasks(accessToken, tasklistGuid) {
 
 // 获取我负责的任务列表
 async function getMyTasks(accessToken) {
-  // 使用 Task v2 API 获取用户任务
   const tasks = [];
   let pageToken = "";
 
@@ -136,24 +137,64 @@ async function addTaskToTasklist(accessToken, taskGuid, tasklistGuid) {
   );
 
   if (data.code !== 0) {
-    // 如果错误是"已存在"，视为成功
     if (data.code === 114001 || data.code === 10001) return { already_exists: true };
     throw new Error(`添加任务到清单失败: ${data.msg}`);
   }
   return { ok: true };
 }
 
-// 查找任务清单 GUID
-async function searchTasklist(accessToken, name) {
-  const data = await feishuFetch(
-    `/open-apis/task/v2/tasklists?page_size=50`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+// 获取任务清单 GUID 映射
+// 优先级: 1. 环境变量 FEISHU_TASKLIST_GUIDS  2. 实时搜索
+async function getTasklistGuidMap(accessToken, requiredDepartments) {
+  // 优先从环境变量读取
+  const envGuids = process.env.FEISHU_TASKLIST_GUIDS;
+  if (envGuids) {
+    try {
+      const parsed = JSON.parse(envGuids);
+      const result = {};
+      for (const dept of requiredDepartments) {
+        if (parsed[dept]) {
+          result[dept] = parsed[dept];
+        }
+      }
+      if (Object.keys(result).length > 0) return result;
+    } catch {
+      // JSON 解析失败，继续尝试搜索
+    }
+  }
 
-  if (data.code !== 0) throw new Error(`搜索任务清单失败: ${data.msg}`);
+  // 从 API 获取全部任务清单
+  const allTasklists = [];
+  let pageToken = "";
 
-  const found = (data.data?.items || []).find((t) => t.name === name);
-  return found ? found.guid : null;
+  do {
+    let url = `/open-apis/task/v2/tasklists?page_size=50`;
+    if (pageToken) url += `&page_token=${pageToken}`;
+
+    const data = await feishuFetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    if (data.code !== 0) {
+      throw new Error(`搜索任务清单失败 (${data.code}): ${data.msg}`);
+    }
+
+    if (data.data?.items) {
+      allTasklists.push(...data.data.items);
+    }
+    pageToken = data.data?.page_token || "";
+  } while (pageToken);
+
+  // 按名称在本地过滤
+  const result = {};
+  for (const dept of requiredDepartments) {
+    const found = allTasklists.find((t) => t.name === dept);
+    if (found?.guid) {
+      result[dept] = found.guid;
+    }
+  }
+
+  return result;
 }
 
 // ── 主同步逻辑 ─────────────────────────────────────────────────
@@ -165,19 +206,19 @@ async function runSync(baseUrl) {
   let baseToken, tableId;
 
   if (baseUrl) {
-    // 从 URL 解析 base_token 和 table_id，无需额外 API 调用
-    // URL 格式: https://xxx.feishu.cn/base/BaseToken?table=TableId&view=ViewId
     try {
       const parsed = new URL(baseUrl);
       const pathMatch = parsed.pathname.match(/\/base\/([^\/\?]+)/);
       if (pathMatch) baseToken = pathMatch[1];
-      tableId = parsed.searchParams.get("table") || process.env.FEISHU_TABLE_ID;
+      tableId = parsed.searchParams.get("table") || "";
     } catch {
-      throw new Error("无法解析 Base URL，请在 Vercel 环境变量中设置 FEISHU_BASE_TOKEN 和 FEISHU_TABLE_ID");
+      throw new Error("无法解析 Base URL，请检查 FEISHU_BASE_URL 环境变量");
     }
   }
 
-  if (!baseToken || !tableId) throw new Error("无法确定 Base Token 和 Table ID");
+  if (!baseToken || !tableId) {
+    throw new Error("无法确定 Base Token 和 Table ID，请检查 FEISHU_BASE_URL");
+  }
 
   // 2. 获取多维表格中的字段信息
   const fieldResp = await feishuFetch(
@@ -200,6 +241,8 @@ async function runSync(baseUrl) {
 
   // 构建 任务名 -> {部门列表, 状态} 映射
   const baseMapping = {};
+  const allDepartments = new Set();
+
   for (const r of records) {
     const fields = r.fields || {};
     const taskName = fields[taskNameFieldId] || "";
@@ -210,6 +253,8 @@ async function runSync(baseUrl) {
       ? new Set(tasklistVal.filter((v) => typeof v === "string"))
       : new Set([String(tasklistVal)]);
 
+    departments.forEach((d) => allDepartments.add(d));
+
     let taskStatus = "";
     const statusVal = statusFieldId ? fields[statusFieldId] : null;
     if (Array.isArray(statusVal)) taskStatus = statusVal[0] || "";
@@ -218,20 +263,14 @@ async function runSync(baseUrl) {
     baseMapping[taskName] = { departments, status: taskStatus };
   }
 
-  // 4. 搜索/确认任务清单
-  const allDepartments = new Set();
-  for (const info of Object.values(baseMapping)) {
-    info.departments.forEach((d) => allDepartments.add(d));
-  }
-
-  const tasklistGuidMap = {};
-  for (const dept of allDepartments) {
-    const guid = await searchTasklist(accessToken, dept);
-    if (guid) tasklistGuidMap[dept] = guid;
-  }
+  // 4. 获取任务清单 GUID
+  const tasklistGuidMap = await getTasklistGuidMap(accessToken, [...allDepartments]);
 
   if (Object.keys(tasklistGuidMap).length === 0) {
-    throw new Error("未找到任何可用任务清单");
+    throw new Error(
+      "未找到任何可用任务清单。建议在 Vercel 环境变量中设置 FEISHU_TASKLIST_GUIDS，格式: " +
+      '{"学培部":"09132845-3bb2-43f6-9441-1849acee2bb4","组织部":"17bd8f58-cb80-4bf7-a75f-ec4c2cab78a9","宣传部":"799c5d11-ae8a-488e-9f9e-45c2be8ee249"}'
+    );
   }
 
   // 5. 检查各清单中已有的任务 GUID
@@ -306,7 +345,6 @@ async function runSync(baseUrl) {
 // ── HTTP Handler ────────────────────────────────────────────────
 
 export default async function handler(req, res) {
-  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
 
@@ -316,7 +354,6 @@ export default async function handler(req, res) {
 
   try {
     const effectiveBaseUrl = req.body?.base_url || process.env.FEISHU_BASE_URL || "";
-
     const result = await runSync(effectiveBaseUrl);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {

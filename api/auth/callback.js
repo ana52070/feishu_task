@@ -101,6 +101,7 @@ export default async function handler(req, res) {
           <table border="1" cellpadding="8" style="border-collapse:collapse;width:100%">
             <tr><td><code>FEISHU_REFRESH_TOKEN</code></td><td>✅ 已获取（如上）</td></tr>
             <tr><td><code>FEISHU_BASE_URL</code></td><td>你的多维表格完整链接</td></tr>
+            <tr><td><code>FEISHU_TASKLIST_GUIDS</code></td><td>（可选）清单 GUID 映射 JSON</td></tr>
           </table>
         </div>
 

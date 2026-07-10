@@ -52,6 +52,7 @@ export default async function handler(req, res) {
           <tr><td><code>FEISHU_APP_SECRET</code></td><td>App Secret</td><td>开发者后台 → 凭证与基础信息</td></tr>
           <tr><td><code>FEISHU_REFRESH_TOKEN</code></td><td>授权后获取</td><td>先设前两项，访问 <code>/api/auth</code></td></tr>
           <tr><td><code>FEISHU_BASE_URL</code></td><td>Base 链接</td><td>你的多维表格 URL</td></tr>
+          <tr><td><code>FEISHU_TASKLIST_GUIDS</code></td><td>清单 GUID 映射（可选）</td><td>建议配置以避免 API 搜索问题</td></tr>
         </table>
         <h3>回调 URL 配置</h3>
         <p>在飞书开发者后台 →「安全设置」中，将以下地址添加到「重定向 URL」：</p>
