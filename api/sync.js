@@ -21,20 +21,12 @@ async function feishuFetch(path, options = {}) {
       ...(options.headers || {}),
     },
   });
-  return res.json();
-}
-
-// 获取 tenant_access_token (bot 身份)
-async function getTenantToken() {
-  const data = await feishuFetch("/open-apis/auth/v3/tenant_access_token/internal", {
-    method: "POST",
-    body: JSON.stringify({
-      app_id: process.env.FEISHU_APP_ID,
-      app_secret: process.env.FEISHU_APP_SECRET,
-    }),
-  });
-  if (data.code !== 0) throw new Error(`获取 tenant_token 失败: ${data.msg}`);
-  return data.tenant_access_token;
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error(`飞书 API 返回非 JSON (${res.status}): ${text.slice(0, 200)}`);
+  }
 }
 
 // 刷新 user_access_token
@@ -42,30 +34,21 @@ async function refreshUserToken() {
   const refreshToken = process.env.FEISHU_REFRESH_TOKEN;
   if (!refreshToken) throw new Error("FEISHU_REFRESH_TOKEN 未设置");
 
-  // 先用 tenant_token 调用 OIDC 刷新接口
-  const tenantToken = await getTenantToken();
-  const data = await feishuFetch("/open-apis/authen/v1/oidc/refresh", {
+  const data = await feishuFetch("/open-apis/authen/v1/refresh_access_token", {
     method: "POST",
-    headers: { Authorization: `Bearer ${tenantToken}` },
     body: JSON.stringify({
-      grant_type: "refresh_token",
+      app_id: process.env.FEISHU_APP_ID,
+      app_secret: process.env.FEISHU_APP_SECRET,
       refresh_token: refreshToken,
+      grant_type: "refresh_token",
     }),
   });
 
   if (data.code !== 0) {
-    // 如果 OIDC 接口失败，尝试传统 token 刷新方式
-    const data2 = await feishuFetch("/open-apis/auth/v3/tenant_access_token/internal", {
-      method: "POST",
-      body: JSON.stringify({
-        app_id: process.env.FEISHU_APP_ID,
-        app_secret: process.env.FEISHU_APP_SECRET,
-      }),
-    });
-    // 如果都不行，报错
-    throw new Error(`刷新 token 失败: ${data.msg || data.error}`);
+    throw new Error(`刷新 token 失败 (${data.code}): ${data.msg}。请重新访问 /api/auth 获取新 refresh_token`);
   }
 
+  // 更新环境变量中存的 refresh_token（新 refresh_token 可能有更新）
   return data.data.access_token;
 }
 
