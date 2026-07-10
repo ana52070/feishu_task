@@ -12,7 +12,7 @@
 //   FEISHU_REFRESH_TOKEN  用户 Refresh Token（通过本页获取后设置）
 
 const FEISHU_HOST = "https://open.feishu.cn";
-const SCOPES = "task:task:read,task:task:write,base:record:read,task:tasklist:read";
+const SCOPES = "task:task:read,task:task:write,task:tasklist:read,base:record:read,bitable:app:readonly";
 
 function getRedirectUri(req) {
   const host = req.headers["x-forwarded-host"] || req.headers.host;
