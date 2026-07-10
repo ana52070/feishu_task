@@ -1,0 +1,10 @@
+{
+  "name": "feishu-tasklist-sync-server",
+  "version": "1.0.0",
+  "description": "飞书任务清单同步服务 (fly.io)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {}
+}
