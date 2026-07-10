@@ -2,11 +2,10 @@
 // 接收 Base Workflow Webhook，自动同步任务清单
 //
 // 环境变量:
-//   FEISHU_APP_ID          飞书应用 App ID（必填）
-//   FEISHU_APP_SECRET      飞书应用 App Secret（必填）
-//   FEISHU_REFRESH_TOKEN   用户 Refresh Token（必填，通过 /api/auth 获取）
-//   FEISHU_BASE_TOKEN      多维表格 Base Token
-//   FEISHU_TABLE_ID        多维表格 Table ID
+//   FEISHU_APP_ID            飞书应用 App ID（必填）
+//   FEISHU_APP_SECRET        飞书应用 App Secret（必填）
+//   FEISHU_REFRESH_TOKEN     用户 Refresh Token（必填，通过 /api/auth 获取）
+//   FEISHU_BASE_URL          多维表格完整链接（必填，如 https://xxx.feishu.cn/base/xxx?table=tblxxx）
 
 const FEISHU_HOST = "https://open.feishu.cn";
 
@@ -162,23 +161,20 @@ async function searchTasklist(accessToken, name) {
 async function runSync(baseUrl) {
   const accessToken = await refreshUserToken();
 
-  // 1. 解析 Base URL 或使用已配置的 token
-  let baseToken = process.env.FEISHU_BASE_TOKEN;
-  let tableId = process.env.FEISHU_TABLE_ID;
+  // 1. 从 URL 解析 base_token 和 table_id
+  let baseToken, tableId;
 
-  if (!baseToken && baseUrl) {
-    // 通过 URL 解析
-    const resp = await feishuFetch(
-      `/open-apis/bitable/v1/apps/url/resolve`,
-      {
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}` },
-        body: JSON.stringify({ url: baseUrl }),
-      }
-    );
-    if (resp.code !== 0) throw new Error(`解析 Base URL 失败: ${resp.msg}`);
-    baseToken = resp.data?.base_token;
-    tableId = resp.data?.table_id;
+  if (baseUrl) {
+    // 从 URL 解析 base_token 和 table_id，无需额外 API 调用
+    // URL 格式: https://xxx.feishu.cn/base/BaseToken?table=TableId&view=ViewId
+    try {
+      const parsed = new URL(baseUrl);
+      const pathMatch = parsed.pathname.match(/\/base\/([^\/\?]+)/);
+      if (pathMatch) baseToken = pathMatch[1];
+      tableId = parsed.searchParams.get("table") || process.env.FEISHU_TABLE_ID;
+    } catch {
+      throw new Error("无法解析 Base URL，请在 Vercel 环境变量中设置 FEISHU_BASE_TOKEN 和 FEISHU_TABLE_ID");
+    }
   }
 
   if (!baseToken || !tableId) throw new Error("无法确定 Base Token 和 Table ID");
@@ -319,10 +315,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { base_url } = req.body || {};
-    const effectiveBaseUrl =
-      base_url ||
-      `${process.env.FEISHU_BASE_URL || ""}?table=${process.env.FEISHU_TABLE_ID || ""}`;
+    const effectiveBaseUrl = req.body?.base_url || process.env.FEISHU_BASE_URL || "";
 
     const result = await runSync(effectiveBaseUrl);
     return res.status(200).json({ ok: true, ...result });
