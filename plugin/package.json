@@ -6,8 +6,8 @@
   "scripts": {
     "build": "tsc",
     "test": "node dist/test/index.js",
-    "upload": "opdev block upload",
-    "preview": "opdev block preview"
+    "upload": "opdev upload",
+    "preview": "opdev preview"
   },
   "dependencies": {
     "@lark-opdev/block-basekit-server-api": "latest"
