@@ -1,0 +1,8 @@
+{
+  "name": "feishu-tasklist-sync",
+  "version": "1.0.0",
+  "description": "飞书多维表格 → 任务清单自动同步",
+  "scripts": {
+    "dev": "vercel dev"
+  }
+}
