@@ -1,0 +1,20 @@
+{
+  "name": "feishu-tasklist-sync",
+  "version": "0.0.1",
+  "description": "飞书多维表格自动化插件 - 自动同步任务到所属清单",
+  "main": "dist/register.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "node dist/test/index.js",
+    "upload": "opdev block upload",
+    "preview": "opdev block preview"
+  },
+  "dependencies": {
+    "@lark-opdev/block-basekit-server-api": "latest"
+  },
+  "devDependencies": {
+    "@lark-opdev/cli": "latest",
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}
